@@ -77,14 +77,15 @@ func (hs *HTTPServer) RevokeUserAuthToken(c *contextmodel.ReqContext) response.R
 }
 
 func (hs *HTTPServer) RotateUserAuthTokenRedirect(c *contextmodel.ReqContext) response.Response {
-	if err := hs.rotateToken(c); err != nil {
+	//NOTE: CN workaround. Cause infinity loop of redirects while loading grafana js content.
+	/*if err := hs.rotateToken(c); err != nil {
 		hs.log.FromContext(c.Req.Context()).Debug("Failed to rotate token", "error", err)
 		if errors.Is(err, auth.ErrInvalidSessionToken) {
 			hs.log.FromContext(c.Req.Context()).Debug("Deleting session cookie")
 			authn.DeleteSessionCookie(c.Resp, hs.Cfg)
 		}
 		return response.Redirect(hs.Cfg.AppSubURL + "/login")
-	}
+	}*/
 
 	return response.Redirect(hs.GetRedirectURL(c))
 }
@@ -101,19 +102,20 @@ func (hs *HTTPServer) RotateUserAuthTokenRedirect(c *contextmodel.ReqContext) re
 // 404: notFoundError
 // 500: internalServerError
 func (hs *HTTPServer) RotateUserAuthToken(c *contextmodel.ReqContext) response.Response {
+	//NOTE: CN workaround. Cause infinity loop of redirects while loading grafana js content.
 	if err := hs.rotateToken(c); err != nil {
 		hs.log.FromContext(c.Req.Context()).Debug("Failed to rotate token", "error", err)
 		if errors.Is(err, auth.ErrInvalidSessionToken) {
 			hs.log.FromContext(c.Req.Context()).Debug("Deleting session cookie")
 			authn.DeleteSessionCookie(c.Resp, hs.Cfg)
+			//return response.ErrOrFallback(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized), err)
+		}
+
+		/*if errors.Is(err, auth.ErrUserTokenNotFound) {
 			return response.ErrOrFallback(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized), err)
 		}
 
-		if errors.Is(err, auth.ErrUserTokenNotFound) {
-			return response.ErrOrFallback(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized), err)
-		}
-
-		return response.ErrOrFallback(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), err)
+		return response.ErrOrFallback(http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), err)*/
 	}
 
 	return response.JSON(http.StatusOK, map[string]any{})

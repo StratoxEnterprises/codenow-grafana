@@ -221,11 +221,13 @@ func (ss *sqlStore) Update(ctx context.Context, cmd *user.UpdateUserCommand) err
 
 	return ss.db.WithTransactionalDbSession(ctx, func(sess *db.Session) error {
 		usr := user.User{
+			ID:      cmd.UserID,
 			Name:    cmd.Name,
 			Theme:   cmd.Theme,
 			Email:   strings.ToLower(cmd.Email),
 			Login:   strings.ToLower(cmd.Login),
 			Updated: time.Now(),
+			OrgID:   *cmd.OrgID,
 		}
 
 		q := sess.ID(cmd.UserID).Where(ss.notServiceAccountFilter())
@@ -331,8 +333,9 @@ func (ss *sqlStore) GetSignedInUser(ctx context.Context, query *user.GetSignedIn
 		}
 
 		if signedInUser.OrgRole == "" {
-			signedInUser.OrgID = -1
-			signedInUser.OrgName = "Org missing"
+			signedInUser.OrgID = 0
+			//signedInUser.OrgID = -1
+			//signedInUser.OrgName = "Org missing"
 		}
 
 		return nil
