@@ -1,3 +1,50 @@
+<div align="center">
+
+# CodeNow Grafana 
+</div>
+
+This is fork of origin [Grafana](https://github.com/grafana/grafana/) with following implementation improvements:
+
+- provide authn/authz based on roles defined in JWT claims
+- introduce new config param to on-the-fly mapping roles from jwt claims to grafana roles/organization 
+
+### JWT authn/authz config:
+
+`regex_org_role_mapper` - define regex to match jwt role and assign it to Grafana role. The regex must contains `<org>` named group to identify Grafana organization name.
+
+####  examples:
+
+Config: 
+```
+regex_org_role_mapper: (stxcn-dev:env:(?P<org>\w+):admin):Editor (stxcn-dev:env:(?P<org>\w+):viewer):Viewer`
+```
+
+JWT roles claims: 
+```
+[
+stxcn-dev:env:test:admin,
+stxcn-dev:env:stage:viewer,
+stxcn-dev:env:fat:viewer,
+stxcn:env:fat:admin
+]
+```
+assign to the logged user Editor role for test organization and Viewer role for stage,fat organization
+
+More about JWT config see [official doc](https://grafana.com/docs/grafana/latest/setup-grafana/configure-security/configure-authentication/jwt/) 
+
+
+#### build & publish
+
+- run ` make cn-build-and-push-docker IMAGE_VERSION=X.X.X`
+- wait very long time
+
+#### release
+
+- make new git tag `codenow-grafana-vX.X.X`
+
+___
+
+
 ![Grafana Logo (Light)](docs/logo-horizontal.png#gh-light-mode-only)
 ![Grafana Logo (Dark)](docs/logo-horizontal-dark.png#gh-dark-mode-only)
 
