@@ -44,7 +44,7 @@ func (c *Render) Authenticate(ctx context.Context, r *authn.Request) (*authn.Ide
 		return &authn.Identity{
 			ID:              authn.NewNamespaceID(authn.NamespaceRenderService, 0),
 			OrgID:           renderUsr.OrgID,
-			OrgRoles:        map[int64]org.RoleType{renderUsr.OrgID: org.RoleType(renderUsr.OrgRole)},
+			OrgRoles:        map[string]org.RoleType{"": org.RoleType(renderUsr.OrgRole)},
 			ClientParams:    authn.ClientParams{SyncPermissions: true},
 			LastSeenAt:      time.Now(),
 			AuthenticatedBy: login.RenderModule,

@@ -66,7 +66,9 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 	for _, orga := range result {
 		handledOrgIds[orga.OrgID] = true
 
-		extRole := id.OrgRoles[orga.OrgID]
+		orgb, _ := s.orgService.GetByID(ctx, &org.GetOrgByIDQuery{ID: orga.OrgID})
+
+		extRole := id.OrgRoles[orgb.Name]
 		if extRole == "" {
 			deleteOrgIds = append(deleteOrgIds, orga.OrgID)
 		} else if extRole != orga.Role {
@@ -81,14 +83,20 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 
 	orgIDs := make([]int64, 0, len(id.OrgRoles))
 	// add any new org roles
-	for orgId, orgRole := range id.OrgRoles {
-		orgIDs = append(orgIDs, orgId)
-		if _, exists := handledOrgIds[orgId]; exists {
+	for orgName, orgRole := range id.OrgRoles {
+		orga, e := s.orgService.GetByName(ctx, &org.GetOrgByNameQuery{Name: orgName})
+		if orga == nil || e != nil {
+			continue
+		}
+
+		orgIDs = append(orgIDs, orga.ID)
+
+		if _, exists := handledOrgIds[orga.ID]; exists {
 			continue
 		}
 
 		// add role
-		cmd := &org.AddOrgUserCommand{UserID: userID, Role: orgRole, OrgID: orgId}
+		cmd := &org.AddOrgUserCommand{UserID: userID, Role: orgRole, OrgID: orga.ID}
 		err := s.orgService.AddOrgUser(ctx, cmd)
 		if err != nil && !errors.Is(err, org.ErrOrgNotFound) {
 			ctxLogger.Error("Failed to update active org for user", "error", err)
@@ -117,7 +125,7 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 	// Note: sort all org ids to not make it flaky, for now we default to the lowest id
 	sort.Slice(orgIDs, func(i, j int) bool { return orgIDs[i] < orgIDs[j] })
 	// update user's default org if needed
-	if _, ok := id.OrgRoles[id.OrgID]; !ok {
+	if _, ok := id.OrgRoles[id.OrgName]; !ok {
 		if len(orgIDs) > 0 {
 			id.OrgID = orgIDs[0]
 			return s.userService.Update(ctx, &user.UpdateUserCommand{

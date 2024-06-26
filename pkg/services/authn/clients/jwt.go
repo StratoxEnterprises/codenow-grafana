@@ -2,7 +2,9 @@ package clients
 
 import (
 	"context"
+	"github.com/grafana/grafana/pkg/models/roletype"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/grafana/grafana/pkg/infra/log"
@@ -65,7 +67,7 @@ func (s *JWT) Authenticate(ctx context.Context, r *authn.Request) (*authn.Identi
 	id := &authn.Identity{
 		AuthenticatedBy: login.JWTModule,
 		AuthID:          sub,
-		OrgRoles:        map[int64]org.RoleType{},
+		OrgRoles:        map[string]org.RoleType{},
 		ClientParams: authn.ClientParams{
 			SyncUser:        true,
 			FetchSyncedUser: true,
@@ -101,21 +103,21 @@ func (s *JWT) Authenticate(ctx context.Context, r *authn.Request) (*authn.Identi
 		id.Name = name
 	}
 
-	orgRoles, isGrafanaAdmin, err := getRoles(s.cfg, func() (org.RoleType, *bool, error) {
+	orgRoles, isGrafanaAdmin, err := getRoles(s.cfg, func() (map[string]org.RoleType, *bool, error) {
 		if s.cfg.JWTAuth.SkipOrgRoleSync {
-			return "", nil, nil
+			return make(map[string]org.RoleType), nil, nil
 		}
 
-		role, grafanaAdmin := s.extractRoleAndAdmin(claims)
-		if s.cfg.JWTAuth.RoleAttributeStrict && !role.IsValid() {
+		roles, grafanaAdmin := s.extractRolesAndAdmin(claims)
+		/*if s.cfg.JWTAuth.RoleAttributeStrict && !role.IsValid() {
 			return "", nil, errJWTInvalidRole.Errorf("invalid role claim in JWT: %s", role)
-		}
+		}*/
 
-		if !s.cfg.JWTAuth.AllowAssignGrafanaAdmin {
+		/*if !s.cfg.JWTAuth.AllowAssignGrafanaAdmin {
 			return role, nil, nil
-		}
+		}*/
 
-		return role, &grafanaAdmin, nil
+		return roles, &grafanaAdmin, nil
 	})
 
 	if err != nil {
@@ -204,6 +206,58 @@ func (s *JWT) extractRoleAndAdmin(claims map[string]any) (org.RoleType, bool) {
 		return org.RoleAdmin, true
 	}
 	return org.RoleType(role), false
+}
+
+func (s *JWT) extractRolesAndAdmin(claims map[string]any) (map[string]org.RoleType, bool) {
+
+	resultOrgRoles := make(map[string]org.RoleType)
+	if s.cfg.JWTAuth.RoleAttributePath == "" {
+		return resultOrgRoles, false
+	}
+
+	rolesSlice, err := util.SearchJSONForStringSliceAttr(s.cfg.JWTAuth.RoleAttributePath, claims)
+	if err != nil || len(rolesSlice) == 0 {
+		return resultOrgRoles, false
+	}
+
+	// check if parse roles directly from JWT claim by regex:
+	if s.cfg.JWTAuth.RegexOrgRoleMapper != nil && len(s.cfg.JWTAuth.RegexOrgRoleMapper) > 0 {
+		for _, jwtRole := range rolesSlice {
+			// RegexOrgRoleMapper - map of key = regex to match role agains , value = target gragana to role to be assigned it regex matches
+			//https://stackoverflow.com/questions/20750843/using-named-matches-from-go-regex
+			for regexString, grafanaRole := range s.cfg.JWTAuth.RegexOrgRoleMapper {
+
+				var myExp = regexp.MustCompile(regexString)
+				match := myExp.FindStringSubmatch(jwtRole)
+				if len(match) > 0 {
+					for i, name := range myExp.SubexpNames() {
+						if i != 0 && name == "org" && resultOrgRoles[match[i]] == "" {
+							resultOrgRoles[match[i]] = roletype.RoleType(grafanaRole)
+						}
+					}
+				}
+			}
+		}
+		// otherwise parse statically defined roles:
+	} else {
+		for _, role := range rolesSlice {
+			parsedRole := strings.Split(role, ":")
+			if len(parsedRole) != 3 {
+				continue
+			}
+			if parsedRole[2] == "admin" {
+				resultOrgRoles[parsedRole[1]] = org.RoleEditor
+
+			} else if parsedRole[2] == "viewer" {
+				resultOrgRoles[parsedRole[1]] = org.RoleViewer
+			}
+		}
+	}
+
+	/*if role == roleGrafanaAdmin {
+		return org.RoleAdmin, true
+	}*/
+	return resultOrgRoles, false
 }
 
 func (s *JWT) extractGroups(claims map[string]any) ([]string, error) {

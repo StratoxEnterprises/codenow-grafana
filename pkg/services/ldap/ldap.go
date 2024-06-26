@@ -448,7 +448,7 @@ func (server *Server) buildGrafanaUser(user *ldap.Entry) (*login.ExternalUserInf
 		Login:    getAttribute(attrs.Username, user),
 		Email:    getAttribute(attrs.Email, user),
 		Groups:   memberOf,
-		OrgRoles: map[int64]org.RoleType{},
+		OrgRoles: map[string]org.RoleType{},
 	}
 
 	// Skipping org role sync
@@ -460,13 +460,13 @@ func (server *Server) buildGrafanaUser(user *ldap.Entry) (*login.ExternalUserInf
 	isGrafanaAdmin := false
 	for _, group := range server.Config.Groups {
 		// only use the first match for each org
-		if extUser.OrgRoles[group.OrgId] != "" {
+		if extUser.OrgRoles[""] != "" {
 			continue
 		}
 
 		if IsMemberOf(memberOf, group.GroupDN) {
 			if group.OrgRole != "" {
-				extUser.OrgRoles[group.OrgId] = group.OrgRole
+				extUser.OrgRoles[""] = group.OrgRole
 			}
 
 			if !isGrafanaAdmin && (group.IsGrafanaAdmin != nil && *group.IsGrafanaAdmin) {

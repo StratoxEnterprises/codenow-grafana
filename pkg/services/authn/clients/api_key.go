@@ -257,7 +257,7 @@ func newAPIKeyIdentity(key *apikey.APIKey) *authn.Identity {
 	return &authn.Identity{
 		ID:              authn.NewNamespaceID(authn.NamespaceAPIKey, key.ID),
 		OrgID:           key.OrgID,
-		OrgRoles:        map[int64]org.RoleType{key.OrgID: key.Role},
+		OrgRoles:        map[string]org.RoleType{"": key.Role},
 		ClientParams:    authn.ClientParams{SyncPermissions: true},
 		AuthenticatedBy: login.APIKeyAuthModule,
 	}

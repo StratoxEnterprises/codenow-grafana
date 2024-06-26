@@ -405,6 +405,7 @@ type Cfg struct {
 	ExternalUserMngInfo        string
 	AutoAssignOrg              bool
 	AutoAssignOrgId            int
+	AutoAssignOrgName          string
 	AutoAssignOrgRole          string
 	LoginDefaultOrgId          int64
 	OAuthSkipOrgRoleUpdateSync bool
