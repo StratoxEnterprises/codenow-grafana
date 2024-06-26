@@ -106,7 +106,7 @@ type BasicUserInfo struct {
 	Email          string
 	Login          string
 	Role           org.RoleType
-	OrgRoles       map[int64]org.RoleType
+	OrgRoles       map[string]org.RoleType
 	IsGrafanaAdmin *bool // nil will avoid overriding user's set server admin setting
 	Groups         []string
 }

@@ -112,7 +112,7 @@ func (a *Anonymous) newAnonymousIdentity(o *org.Org) *authn.Identity {
 		ID:           authn.AnonymousNamespaceID,
 		OrgID:        o.ID,
 		OrgName:      o.Name,
-		OrgRoles:     map[int64]org.RoleType{o.ID: org.RoleType(a.cfg.AnonymousOrgRole)},
+		OrgRoles:     map[string]org.RoleType{o.Name: org.RoleType(a.cfg.AnonymousOrgRole)},
 		ClientParams: authn.ClientParams{SyncPermissions: true},
 	}
 }

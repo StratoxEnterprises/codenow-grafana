@@ -1,6 +1,9 @@
 package setting
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type AuthJWTSettings struct {
 	// JWT Auth
@@ -23,6 +26,7 @@ type AuthJWTSettings struct {
 	GroupsAttributePath     string
 	EmailAttributePath      string
 	UsernameAttributePath   string
+	RegexOrgRoleMapper      map[string]string
 }
 
 type ExtJWTSettings struct {
@@ -61,6 +65,24 @@ func (cfg *Cfg) readAuthJWTSettings() {
 	jwtSettings.GroupsAttributePath = valueAsString(authJWT, "groups_attribute_path", "")
 	jwtSettings.EmailAttributePath = valueAsString(authJWT, "email_attribute_path", "")
 	jwtSettings.UsernameAttributePath = valueAsString(authJWT, "username_attribute_path", "")
+	jwtSettings.RegexOrgRoleMapper = parseOrgMapperConfig(valueAsString(authJWT, "regex_org_role_mapper", ""))
 
 	cfg.JWTAuth = jwtSettings
+}
+
+func parseOrgMapperConfig(input string) map[string]string {
+	var result = make(map[string]string)
+	if input == "" {
+		return result
+	}
+
+	//splits := strings.Split(input, " ")
+	splits := strings.Fields(input)
+
+	for _, split := range splits {
+		i := strings.LastIndex(split, ":")
+		result[split[:i]] = split[i+1:]
+	}
+
+	return result
 }

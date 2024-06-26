@@ -172,7 +172,7 @@ func (c *OAuth) Authenticate(ctx context.Context, r *authn.Request) (*authn.Iden
 		social.GitlabProviderName, social.OktaProviderName, social.GoogleProviderName:
 		// Do nothing, these providers already supports OrgRole mapping
 	default:
-		userInfo.OrgRoles, userInfo.IsGrafanaAdmin, _ = getRoles(c.cfg, func() (org.RoleType, *bool, error) {
+		userInfo.OrgRoles, userInfo.IsGrafanaAdmin, _ = getRole(c.cfg, func() (org.RoleType, *bool, error) {
 			return userInfo.Role, userInfo.IsGrafanaAdmin, nil
 		})
 	}
