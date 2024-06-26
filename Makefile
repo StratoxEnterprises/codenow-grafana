@@ -301,17 +301,48 @@ PLATFORM=linux/amd64
 
 .PHONY: build-docker-full
 build-docker-full: ## Build Docker image for development.
-	@echo "build docker container"
+	@echo "build amd64 docker container"
 	tar -ch . | \
 	docker buildx build - \
-	--platform $(PLATFORM) \
+	--platform linux/amd64 \
 	--build-arg BINGO=false \
 	--build-arg GO_BUILD_TAGS=$(GO_BUILD_TAGS) \
-	--build-arg WIRE_TAGS=$(WIRE_TAGS) \
-	--build-arg COMMIT_SHA=$$(git rev-parse HEAD) \
-	--build-arg BUILD_BRANCH=$$(git rev-parse --abbrev-ref HEAD) \
-	--tag grafana/grafana$(TAG_SUFFIX):dev \
+	--tag grafana/grafana$(TAG_SUFFIX):amd64 \
 	$(DOCKER_BUILD_ARGS)
+
+.PHONY: cn-build-and-push-docker
+cn-build-and-push-docker:
+	@echo "build amd64 docker container"
+	tar -ch . | \
+	docker buildx build - \
+	--platform linux/amd64 \
+	--build-arg BINGO=false \
+	--build-arg GO_BUILD_TAGS=$(GO_BUILD_TAGS) \
+	--tag codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 \
+	$(DOCKER_BUILD_ARGS)
+
+	@echo "build arm64 docker container"
+	tar -ch . | \
+	docker buildx build - \
+	--platform linux/arm64 \
+	--build-arg BINGO=false \
+	--build-arg GO_BUILD_TAGS=$(GO_BUILD_TAGS) \
+	--tag codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64 \
+	$(DOCKER_BUILD_ARGS)
+
+	@echo "push docker images"
+	tar -ch . | \
+	docker push codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 && \
+	docker push codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64
+
+	@echo "create docker manifest"
+	tar -ch . | \
+	docker manifest create \
+	codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION) \
+	--amend codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 \
+	--amend codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64 && \
+	docker manifest push codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)
+
 
 .PHONY: build-docker-full-ubuntu
 build-docker-full-ubuntu: ## Build Docker image based on Ubuntu for development.
