@@ -415,6 +415,7 @@ type Cfg struct {
 	ExternalUserMngAnalytics       bool
 	ExternalUserMngAnalyticsParams string
 	AutoAssignOrg                  bool
+	AutoAssignOrgName              string
 	AutoAssignOrgId                int
 	AutoAssignOrgRole              string
 	LoginDefaultOrgId              int64

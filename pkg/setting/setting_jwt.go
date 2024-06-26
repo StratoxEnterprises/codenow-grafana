@@ -1,9 +1,9 @@
 package setting
 
 import (
-	"time"
-
 	"github.com/grafana/grafana/pkg/util"
+	"strings"
+	"time"
 )
 
 const (
@@ -34,6 +34,7 @@ type AuthJWTSettings struct {
 	EmailAttributePath      string
 	UsernameAttributePath   string
 	TlsSkipVerify           bool
+	RegexOrgRoleMapper      map[string]string
 }
 
 type ExtJWTSettings struct {
@@ -79,6 +80,24 @@ func (cfg *Cfg) readAuthJWTSettings() {
 	jwtSettings.TlsSkipVerify = authJWT.Key("tls_skip_verify_insecure").MustBool(false)
 	jwtSettings.OrgAttributePath = valueAsString(authJWT, "org_attribute_path", "")
 	jwtSettings.OrgMapping = util.SplitString(valueAsString(authJWT, "org_mapping", ""))
+	jwtSettings.RegexOrgRoleMapper = parseOrgMapperConfig(valueAsString(authJWT, "regex_org_role_mapper", ""))
 
 	cfg.JWTAuth = jwtSettings
+}
+
+func parseOrgMapperConfig(input string) map[string]string {
+	var result = make(map[string]string)
+	if input == "" {
+		return result
+	}
+
+	//splits := strings.Split(input, " ")
+	splits := strings.Fields(input)
+
+	for _, split := range splits {
+		i := strings.LastIndex(split, ":")
+		result[split[:i]] = split[i+1:]
+	}
+
+	return result
 }
