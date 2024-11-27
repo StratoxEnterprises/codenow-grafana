@@ -35,8 +35,11 @@ More about JWT config see [official doc](https://grafana.com/docs/grafana/latest
 
 #### build & publish
 
-- run ` make cn-build-and-push-docker IMAGE_VERSION=X.X.X`
-- wait very long time
+The build script use `docker buildx build` BuildKit plugin. If you are hipster that use some shitty Docker Desktop alternative go fuck yourself.  
+
+- make sure your docker client is logged into `codenow-codenow-releases.jfrog.io` with write permission  
+- run `make cn-build-and-push-docker IMAGE_VERSION=X.X.X`  
+- wait very long time (maybe make a coffee or watch pornhub)  
 
 #### release
 

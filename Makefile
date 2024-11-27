@@ -312,36 +312,19 @@ build-docker-full: ## Build Docker image for development.
 
 .PHONY: cn-build-and-push-docker
 cn-build-and-push-docker:
-	@echo "build amd64 docker container"
+	@echo "set buildx builder"
+	docker buildx create --name container-builder --driver docker-container --bootstrap --use || true
+
+	@echo "build amd64/arm64 multi platform docker container"
 	tar -ch . | \
 	docker buildx build - \
-	--platform linux/amd64 \
+	--platform linux/amd64,linux/arm64 \
 	--build-arg BINGO=false \
 	--build-arg GO_BUILD_TAGS=$(GO_BUILD_TAGS) \
-	--tag codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 \
+	--tag codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION) \
+	--output=type=image,push=true \
+	--push \
 	$(DOCKER_BUILD_ARGS)
-
-	@echo "build arm64 docker container"
-	tar -ch . | \
-	docker buildx build - \
-	--platform linux/arm64 \
-	--build-arg BINGO=false \
-	--build-arg GO_BUILD_TAGS=$(GO_BUILD_TAGS) \
-	--tag codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64 \
-	$(DOCKER_BUILD_ARGS)
-
-	@echo "push docker images"
-	tar -ch . | \
-	docker push codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 && \
-	docker push codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64
-
-	@echo "create docker manifest"
-	tar -ch . | \
-	docker manifest create \
-	codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION) \
-	--amend codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 \
-	--amend codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64 && \
-	docker manifest push codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)
 
 
 .PHONY: build-docker-full-ubuntu
