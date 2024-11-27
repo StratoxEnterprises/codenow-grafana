@@ -318,7 +318,7 @@ cn-build-and-push-docker:
 	--platform linux/amd64 \
 	--build-arg BINGO=false \
 	--build-arg GO_BUILD_TAGS=$(GO_BUILD_TAGS) \
-	--tag codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 \
+	--tag codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 \
 	$(DOCKER_BUILD_ARGS)
 
 	@echo "build arm64 docker container"
@@ -327,21 +327,21 @@ cn-build-and-push-docker:
 	--platform linux/arm64 \
 	--build-arg BINGO=false \
 	--build-arg GO_BUILD_TAGS=$(GO_BUILD_TAGS) \
-	--tag codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64 \
+	--tag codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64 \
 	$(DOCKER_BUILD_ARGS)
 
 	@echo "push docker images"
 	tar -ch . | \
-	docker push codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 && \
-	docker push codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64
+	docker push codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 && \
+	docker push codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64
 
 	@echo "create docker manifest"
 	tar -ch . | \
 	docker manifest create \
-	codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION) \
-	--amend codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 \
-	--amend codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64 && \
-	docker manifest push codenow-codenow-data-plane.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)
+	codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION) \
+	--amend codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-amd64 \
+	--amend codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)-arm64 && \
+	docker manifest push codenow-codenow-releases.jfrog.io/codenow/grafana/grafana:$(IMAGE_VERSION)
 
 
 .PHONY: build-docker-full-ubuntu
