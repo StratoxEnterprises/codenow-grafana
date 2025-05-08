@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/mail"
 	"strconv"
+	"strings"
 
 	"golang.org/x/oauth2"
 
@@ -25,6 +27,7 @@ const (
 	nameAttributePathKey    = "name_attribute_path"
 	loginAttributePathKey   = "login_attribute_path"
 	idTokenAttributeNameKey = "id_token_attribute_name" // #nosec G101 not a hardcoded credential
+	regexOrgRoleMapperKey   = "regex_org_role_mapper"
 )
 
 var ExtraGenericOAuthSettingKeys = map[string]ExtraKeyInfo{
@@ -33,6 +36,7 @@ var ExtraGenericOAuthSettingKeys = map[string]ExtraKeyInfo{
 	idTokenAttributeNameKey: {Type: String},
 	teamIdsKey:              {Type: String},
 	allowedOrganizationsKey: {Type: String},
+	regexOrgRoleMapperKey:   {Type: String},
 }
 
 var _ social.SocialConnector = (*SocialGenericOAuth)(nil)
@@ -50,6 +54,7 @@ type SocialGenericOAuth struct {
 	idTokenAttributeName string
 	teamIdsAttributePath string
 	teamIds              []string
+	regexOrgRoleMapper   map[string]string
 }
 
 func NewGenericOAuthProvider(info *social.OAuthInfo, cfg *setting.Cfg, orgRoleMapper *OrgRoleMapper, ssoSettings ssosettings.Service, features featuremgmt.FeatureToggles) *SocialGenericOAuth {
@@ -77,6 +82,7 @@ func NewGenericOAuthProvider(info *social.OAuthInfo, cfg *setting.Cfg, orgRoleMa
 		teamIdsAttributePath: info.TeamIdsAttributePath,
 		teamIds:              teamIds,
 		allowedOrganizations: allowedOrganizations,
+		regexOrgRoleMapper:   parseOrgMapperConfig(info.Extra[regexOrgRoleMapperKey]),
 	}
 
 	if features.IsEnabledGlobally(featuremgmt.FlagSsoSettingsApi) {
@@ -160,6 +166,7 @@ func (s *SocialGenericOAuth) Reload(ctx context.Context, settings ssoModels.SSOS
 	s.teamIdsAttributePath = newInfo.TeamIdsAttributePath
 	s.teamIds = teamIds
 	s.allowedOrganizations = allowedOrganizations
+	s.regexOrgRoleMapper = parseOrgMapperConfig(newInfo.Extra[regexOrgRoleMapperKey])
 
 	return nil
 }
@@ -281,25 +288,48 @@ func (s *SocialGenericOAuth) UserInfo(ctx context.Context, client *http.Client, 
 		}
 
 		if userInfo.Role == "" && !s.info.SkipOrgRoleSync {
-			role, grafanaAdmin, err := s.extractRoleAndAdminOptional(data.rawJSON, []string{})
+			//role, grafanaAdmin, err := s.extractRoleAndAdminOptional(data.rawJSON, []string{})
+			//roles, grafanaAdmin, err := s.extractRolesAndAdminOptional(data.rawJSON, []string{})
+			role, grafanaAdmin, err := s.extractAccountRole(data.rawJSON)
+			//role = "Owner" //TODO smaz me
+			//role = "User" //TODO smaz me
+			//err = nil      //TODO smaz me
+			s.log.Info("XXX Pokracuju dal")
+
 			if err != nil {
 				s.log.Warn("Failed to extract role", "err", err)
 			} else {
-				userInfo.Role = role
+				//userInfo.Role = role
+				//userInfo.OrgRoles = roles
 				if s.info.AllowAssignGrafanaAdmin {
 					userInfo.IsGrafanaAdmin = &grafanaAdmin
 				}
+
+				if role == "Owner" {
+					s.log.Info(fmt.Sprintf("User is %s account owner", userInfo.Name))
+					userInfo.IsAdmin = true
+				}
+			}
+
+			s.log.Info(fmt.Sprintf("Retrieved account role: '%s'", role))
+			if role == "" || role == "None" {
+				return nil, errors.New("user has no granted role for CN account")
 			}
 		}
 
-		if len(externalOrgs) == 0 && !s.info.SkipOrgRoleSync {
+		//userInfo.IsAdmin = false //TODO smaz me
+		if !userInfo.IsAdmin && len(externalOrgs) == 0 && !s.info.SkipOrgRoleSync {
 			var err error
-			externalOrgs, err = s.extractOrgs(data.rawJSON)
+			s.log.Info("XXXXX lets find extractOrgs")
+			externalOrgs, err = s.extractOrgs( /*[]byte("{\"cnAccounts\":[{ \"role\": \"owner\",\"name\":\"demo-tenant\" },{\"role\":\"user\",\"name\":\"omi-dev\"} ],\"cnEnvironments\":[\"rru#viewer\",\"omi-env1#admin\",\"msi_env#admin\"]}")*/ data.rawJSON) //TODO
 			if err != nil {
 				s.log.Warn("Failed to extract orgs", "err", err)
 				return nil, err
 			}
 		}
+
+		//externalOrgs = append(externalOrgs, "msi-env#Editor")
+		s.log.Log(fmt.Sprintf("XXXX externalOrgs: %s", externalOrgs)) //TODO smaz me
 
 		if len(userInfo.Groups) == 0 {
 			groups, err := s.extractGroups(data)
@@ -312,8 +342,13 @@ func (s *SocialGenericOAuth) UserInfo(ctx context.Context, client *http.Client, 
 		}
 	}
 
-	if !s.info.SkipOrgRoleSync {
-		userInfo.OrgRoles = s.orgRoleMapper.MapOrgRoles(s.orgMappingCfg, externalOrgs, userInfo.Role)
+	//userInfo.OrgRoles = s.orgRoleMapper.MapRegexOrgRoles(s.regexOrgRoleMapper, externalOrgs) //TODO smaz me
+	s.log.Log(fmt.Sprintf("XXXX isadmin: %s", userInfo.IsAdmin))               //TODO smaz me
+	s.log.Log(fmt.Sprintf("XXXX SkipOrgRoleSync: %s", s.info.SkipOrgRoleSync)) //TODO smaz me
+
+	if !userInfo.IsAdmin && !s.info.SkipOrgRoleSync {
+		//userInfo.OrgRoles = s.orgRoleMapper.MapOrgRoles(s.orgMappingCfg, externalOrgs, userInfo.Role)
+		userInfo.OrgRoles = s.orgRoleMapper.MapRegexOrgRoles(s.regexOrgRoleMapper, externalOrgs)
 		if s.info.RoleAttributeStrict && len(userInfo.OrgRoles) == 0 {
 			// If no roles are found and role_attribute_strict is set, return an error.
 			// The s.info.RoleAttributeStrict is necessary, because there is a case when len(userInfo.OrgRoles) == 0,
@@ -321,6 +356,9 @@ func (s *SocialGenericOAuth) UserInfo(ctx context.Context, client *http.Client, 
 			return nil, errRoleAttributeStrictViolation.Errorf("could not evaluate any valid roles using IdP provided data")
 		}
 	}
+
+	//userInfo.OrgRoles["msi_env"] = "Editor" //TODO smaz me
+	s.log.Log(fmt.Sprintf("XXXX OrgRoles: %s", userInfo.OrgRoles)) //TODO smaz me
 
 	if s.info.AllowAssignGrafanaAdmin && s.info.SkipOrgRoleSync {
 		s.log.Debug("AllowAssignGrafanaAdmin and skipOrgRoleSync are both set, Grafana Admin role will not be synced, consider setting one or the other")
@@ -660,4 +698,23 @@ func (s *SocialGenericOAuth) SupportBundleContent(bf *bytes.Buffer) error {
 	bf.WriteString("```\n\n")
 
 	return s.getBaseSupportBundleContent(bf)
+}
+
+func parseOrgMapperConfig(input string) map[string]string {
+	var result = make(map[string]string)
+	if input == "" {
+		return result
+	}
+
+	//splits := strings.Split(input, " ")
+	splits := strings.Fields(input)
+	fmt.Println(fmt.Sprintf("XXXX splits: %s inout: %s ", splits, input)) //TODO smaz me
+
+	for _, split := range splits {
+		i := strings.LastIndex(split, ":")
+		fmt.Println(fmt.Sprintf("XXXX split %s", split)) //TODO smaz me
+		result[split[:i]] = split[i+1:]
+	}
+
+	return result
 }

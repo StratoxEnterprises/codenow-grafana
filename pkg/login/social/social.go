@@ -139,6 +139,8 @@ type BasicUserInfo struct {
 	OrgRoles       map[string]org.RoleType
 	IsGrafanaAdmin *bool // nil will avoid overriding user's set server admin setting
 	Groups         []string
+	// IsAdmin is flag to access Editor role to all organizations
+	IsAdmin bool
 }
 
 func (b *BasicUserInfo) String() string {

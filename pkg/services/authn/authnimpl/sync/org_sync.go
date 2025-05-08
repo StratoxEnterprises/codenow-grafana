@@ -33,10 +33,11 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 	ctx, span := s.tracer.Start(ctx, "org.sync.SyncOrgRolesHook")
 	defer span.End()
 
+	s.log.Info("SyncOrgRolesHook #1") //TODO smaz me
 	if !id.ClientParams.SyncOrgRoles {
 		return nil
 	}
-
+	s.log.Info("SyncOrgRolesHook #2") //TODO smaz me
 	ctxLogger := s.log.FromContext(ctx).New("id", id.ID, "login", id.Login)
 
 	if !id.IsIdentityType(claims.TypeUser) {
@@ -60,10 +61,43 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 		return nil
 	}
 
-	ctxLogger.Debug("Syncing organization roles", "extOrgRoles", id.OrgRoles)
+	if id.IsAdmin {
+		ctxLogger.Debug("Syncing organization Admins roles for account owner")
+	} else {
+		ctxLogger.Debug("Syncing organization roles", "extOrgRoles", id.OrgRoles)
+	}
 	// don't sync org roles if none is specified
-	if len(id.OrgRoles) == 0 {
+	if len(id.OrgRoles) == 0 && !id.IsAdmin {
 		ctxLogger.Debug("Not syncing organization roles since external user doesn't have any")
+		return nil
+	}
+	s.log.Info("SyncOrgRolesHook #3") //TODO smaz me
+	if id.IsAdmin {
+		allOrgs, err := s.orgService.Search(context.Background(), &org.SearchOrgsQuery{})
+		if err != nil {
+			ctxLogger.Warn("error fetching all orgs. Roles not mapped to %s user", userID)
+			return err
+		}
+
+		for _, orga := range allOrgs {
+			if orga.Name == "Main Org." {
+				continue
+			}
+			//update user role:
+			cmd := &org.UpdateOrgUserCommand{OrgID: orga.ID, UserID: userID, Role: org.RoleAdmin}
+			if err := s.orgService.UpdateOrgUser(ctx, cmd); err != nil && !errors.Is(err, org.ErrOrgUserNotFound) {
+				ctxLogger.Error("Failed to update org user", "user", id.Name, "error", err)
+				return err
+			} else if err != nil {
+				// add role:
+				cmd := &org.AddOrgUserCommand{UserID: userID, Role: org.RoleAdmin, OrgID: orga.ID}
+				err := s.orgService.AddOrgUser(ctx, cmd)
+				if err != nil && !errors.Is(err, org.ErrOrgNotFound) {
+					ctxLogger.Error("Failed to add org user user", "user", id.Name, "error", err)
+					return err
+				}
+			}
+		}
 		return nil
 	}
 
@@ -82,7 +116,6 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 		handledOrgIds[orga.OrgID] = true
 
 		orgb, _ := s.orgService.GetByID(ctx, &org.GetOrgByIDQuery{ID: orga.OrgID})
-
 		extRole := id.OrgRoles[orgb.Name]
 		if extRole == "" {
 			deleteOrgIds = append(deleteOrgIds, orga.OrgID)
