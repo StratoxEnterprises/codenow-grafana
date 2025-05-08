@@ -3,6 +3,8 @@ package connectors
 import (
 	"context"
 	"fmt"
+	"github.com/grafana/grafana/pkg/models/roletype"
+	"regexp"
 	"strings"
 
 	"github.com/grafana/grafana/pkg/infra/log"
@@ -76,6 +78,38 @@ func (m *OrgRoleMapper) MapOrgRoles(
 	}
 
 	return userOrgRoles
+}
+
+func (m *OrgRoleMapper) MapRegexOrgRoles(
+	regexOrgRoleMapping map[string]string,
+	externalOrgs []string,
+) map[string]org.RoleType {
+
+	resultOrgRoles := make(map[string]org.RoleType)
+	if regexOrgRoleMapping == nil || len(regexOrgRoleMapping) == 0 || externalOrgs == nil || len(externalOrgs) == 0 {
+		return resultOrgRoles
+	}
+
+	for _, roleInToken := range externalOrgs {
+		// RegexOrgRoleMapper - map of key = regex to match role agains , value = target gragana to role to be assigned it regex matches
+		//https://stackoverflow.com/questions/20750843/using-named-matches-from-go-regex
+		for regexString, grafanaRole := range regexOrgRoleMapping {
+
+			var myExp = regexp.MustCompile(regexString)
+			match := myExp.FindStringSubmatch(roleInToken)
+			if len(match) > 0 {
+				for i, name := range myExp.SubexpNames() {
+					if i != 0 && name == "org" && resultOrgRoles[match[i]] == "" {
+						resultOrgRoles[match[i]] = roletype.RoleType(grafanaRole)
+					}
+				}
+			}
+		}
+	}
+
+	m.logger.Info(fmt.Sprintf("XXXXXX Resil org mapping: %s", resultOrgRoles))
+	return resultOrgRoles
+
 }
 
 func (m *OrgRoleMapper) getDefaultOrgMapping(strictRoleMapping bool, directlyMappedRole org.RoleType) map[string]org.RoleType {

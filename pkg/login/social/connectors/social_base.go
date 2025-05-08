@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/grafana/grafana/pkg/models/roletype"
 	"io"
 	"net/http"
 	"regexp"
@@ -29,13 +30,14 @@ import (
 
 type SocialBase struct {
 	*oauth2.Config
-	info          *social.OAuthInfo
-	cfg           *setting.Cfg
-	reloadMutex   sync.RWMutex
-	log           log.Logger
-	features      featuremgmt.FeatureToggles
-	orgRoleMapper *OrgRoleMapper
-	orgMappingCfg *MappingConfiguration
+	info               *social.OAuthInfo
+	cfg                *setting.Cfg
+	reloadMutex        sync.RWMutex
+	log                log.Logger
+	features           featuremgmt.FeatureToggles
+	orgRoleMapper      *OrgRoleMapper
+	orgMappingCfg      *MappingConfiguration
+	regexOrgRoleMapper map[string]string
 }
 
 func newSocialBase(name string,
@@ -151,6 +153,109 @@ func (s *SocialBase) extractRoleAndAdminOptional(rawJSON []byte, groups []string
 	}
 
 	return "", false, nil
+}
+
+func (s *SocialBase) extractAccountRole(rawJSON []byte) (string, bool, error) {
+	if s.info.RoleAttributePath == "" {
+		if s.info.RoleAttributeStrict {
+			return "", false, errRoleAttributePathNotSet.Errorf("role_attribute_path not set and role_attribute_strict is set")
+		}
+		return "", false, nil
+	}
+
+	s.log.Info(fmt.Sprintf("XXXXX rawJSON: %v", string(rawJSON)))
+	role, err := util.SearchJSONForStringAttr(s.info.RoleAttributePath, rawJSON)
+	if role == "" || err != nil {
+		if err != nil {
+			s.log.Error("role_attribute_path could not be read correctly: " + err.Error())
+		}
+		s.log.Info("No role found in role_attribute_path. User has no access to any resource")
+		return "", false, err
+	}
+	return role, false, nil
+
+}
+
+func (s *SocialBase) extractRolesAndAdminOptional(rawJSON []byte, groups []string) (map[string]org.RoleType, bool, error) {
+	resultOrgRoles := make(map[string]org.RoleType)
+	if s.info.RoleAttributePath == "" {
+		if s.info.RoleAttributeStrict {
+			return resultOrgRoles, false, errRoleAttributePathNotSet.Errorf("role_attribute_path not set and role_attribute_strict is set")
+		}
+		return resultOrgRoles, false, nil
+	}
+
+	//s.info.OrgAttributePath
+
+	//check user's account
+	//if role=='none` or no role is found or error occurs, the user has no permission to any org
+	//if role=='owner' user is gratend Editor role to all organization
+	//if role=='user' lets continue and map roles by regexOrgRoleMapper rules
+	stringRole, err := util.SearchJSONForStringAttr(s.info.RoleAttributePath, rawJSON)
+	if stringRole == "" || err != nil {
+		if err != nil {
+			s.log.Error("role_attribute_path could not be read correctly: " + err.Error())
+		}
+		s.log.Info("No role found in role_attribute_path. User has no access to any resource")
+		return resultOrgRoles, false, err
+	}
+
+	if stringRole == "None" {
+		s.log.Info("Found role 'None' in role_attribute_path. User has no access to any resource")
+		return resultOrgRoles, false, nil
+	}
+
+	if stringRole == "Owner" {
+		//TODO to all organizations as Editor
+	} else if stringRole == "User" {
+
+		//TODO mapovani roli
+
+	}
+
+	//TODO get rolesSlice:
+	// jeste asi s.info.OrgAttributePath
+	rolesSlice, err := util.SearchJSONForStringSliceAttr(s.info.RoleAttributePath, "") //TODO data
+	if err != nil || len(rolesSlice) == 0 {
+		return resultOrgRoles, false, err
+	}
+
+	// check if we can parse roles from oauth token
+	if s.regexOrgRoleMapper != nil && len(s.regexOrgRoleMapper) > 0 {
+		for _, roleInToken := range rolesSlice {
+			// RegexOrgRoleMapper - map of key = regex to match role agains , value = target gragana to role to be assigned it regex matches
+			//https://stackoverflow.com/questions/20750843/using-named-matches-from-go-regex
+			for regexString, grafanaRole := range s.regexOrgRoleMapper {
+
+				var myExp = regexp.MustCompile(regexString)
+				match := myExp.FindStringSubmatch(roleInToken)
+				if len(match) > 0 {
+					for i, name := range myExp.SubexpNames() {
+						if i != 0 && name == "org" && resultOrgRoles[match[i]] == "" {
+							resultOrgRoles[match[i]] = roletype.RoleType(grafanaRole)
+						}
+					}
+				}
+			}
+		}
+
+	} else {
+		// otherwise parse statically defined roles:
+		for _, role := range rolesSlice {
+			parsedRole := strings.Split(role, ":")
+			if len(parsedRole) != 3 {
+				continue
+			}
+			if parsedRole[2] == "admin" {
+				resultOrgRoles[parsedRole[1]] = org.RoleEditor
+
+			} else if parsedRole[2] == "viewer" {
+				resultOrgRoles[parsedRole[1]] = org.RoleViewer
+			}
+		}
+	}
+
+	return resultOrgRoles, false, nil
 }
 
 func (s *SocialBase) searchRole(rawJSON []byte, groups []string) (org.RoleType, bool) {

@@ -31,6 +31,8 @@ type Identity struct {
 	OrgName string
 	// OrgRoles is the list of organizations the entity is a member of and their roles.
 	OrgRoles map[string]org.RoleType
+	// IsAdmin is flag to access Editor role to all organizations
+	IsAdmin bool
 	// Login is the shorthand identifier of the entity. Should be unique.
 	Login string
 	// Name is the display name of the entity. It is not guaranteed to be unique.

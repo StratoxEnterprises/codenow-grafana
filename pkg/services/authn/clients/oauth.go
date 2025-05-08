@@ -193,6 +193,7 @@ func (c *OAuth) Authenticate(ctx context.Context, r *authn.Request) (*authn.Iden
 		Groups:          userInfo.Groups,
 		OAuthToken:      token,
 		OrgRoles:        userInfo.OrgRoles,
+		IsAdmin:         userInfo.IsAdmin,
 		ClientParams: authn.ClientParams{
 			SyncUser:        true,
 			SyncTeams:       true,
@@ -200,7 +201,7 @@ func (c *OAuth) Authenticate(ctx context.Context, r *authn.Request) (*authn.Iden
 			SyncPermissions: true,
 			AllowSignUp:     connector.IsSignupAllowed(),
 			// skip org role flag is checked and handled in the connector. For now we can skip the hook if no roles are passed
-			SyncOrgRoles: len(userInfo.OrgRoles) > 0,
+			SyncOrgRoles: len(userInfo.OrgRoles) > 0 || userInfo.IsAdmin,
 			LookUpParams: lookupParams,
 		},
 	}, nil
