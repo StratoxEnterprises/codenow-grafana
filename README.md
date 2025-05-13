@@ -1,3 +1,81 @@
+<div align="center">
+
+# CodeNow Grafana
+</div>
+
+This is fork of origin [Grafana](https://github.com/grafana/grafana/) with following implementation improvements:
+
+- extends oauth functionality to proper handle Codenow accounts / environments roles
+- introduce new `regex_org_role_mapper` config param to enable mapping roles from granted user auth token to corresponding grafana organizations
+
+### Oauth token roles mapping:
+
+`role_attribute_path` - JMESPATH to retrieve role in given CodeNow account. If user has `owner` CN role then gets `Admin` grafana role to every grafana organization. If user has `user` CN role then roles are assigned based on `regex_org_role_mapper`  
+
+`org_attribute_path` - path to array of roles. The retrieved roles are processed in  `regex_org_role_mapper`  
+
+`regex_org_role_mapper` - define regex to match environment roles with Grafana roles. The regex must contains `<org>` named group to identify Grafana organization name.  
+
+####  examples:
+
+Config:
+```
+
+role_attribute_path = contains(cnAccounts[?name=='demo-tenant'].role, 'owner') && 'Owner' || contains(cnAccounts[?name=='demo-tenant'].role, 'User') && 'user' || 'None' 
+
+regex_org_role_mapper = \"\"\"(^(?P<org>[a-zA-Z-_]+)#admin):Editor (^(?P<org>[a-zA-Z-_]+)#viewer):Viewer\"\"\"
+
+```
+
+1) 
+```
+{
+...
+   "cnAccounts":[
+      {
+         "role":"owner",
+         "name":"demo-tenant"
+      },
+      {
+         "role":"user",
+         "name":"omi-dev"
+      }
+   ],
+  "cnEnvironments": [
+    "rfu-env#viewer",
+    "omi-env#admin"
+  ]
+...
+}
+```
+Since user is owner in `demo-tenant` account, he gets `Admin` grafana role to all grafana organizations  
+
+2)
+```
+{
+...
+   "cnAccounts":[
+      {
+         "role":"user",
+         "name":"demo-tenant"
+      },
+      {
+         "role":"user",
+         "name":"omi-dev"
+      }
+   ],
+  "cnEnvironments": [
+    "rfu-env#viewer",
+    "omi-env#admin"
+  ]
+...
+}
+```
+Since user is user in `demo-tenant` account, based on `cnEnvironments` he gets `Viewer` grafana role to `rfu-env` grafana organization and `Editor` grafana role to `omi-env` grafan organization.
+
+___
+
+
 ![Grafana Logo (Light)](docs/logo-horizontal.png#gh-light-mode-only)
 ![Grafana Logo (Dark)](docs/logo-horizontal-dark.png#gh-dark-mode-only)
 
