@@ -461,7 +461,7 @@ func syncSignedInUserToIdentity(usr *user.SignedInUser, id *authn.Identity) {
 	id.Email = usr.Email
 	id.OrgID = usr.OrgID
 	id.OrgName = usr.OrgName
-	id.OrgRoles = map[int64]org.RoleType{id.OrgID: usr.OrgRole}
+	id.OrgRoles = map[string]org.RoleType{id.OrgName: usr.OrgRole}
 	id.HelpFlags1 = usr.HelpFlags1
 	id.Teams = usr.Teams
 	id.LastSeenAt = usr.LastSeenAt

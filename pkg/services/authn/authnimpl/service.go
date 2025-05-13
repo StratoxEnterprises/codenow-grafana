@@ -538,7 +538,7 @@ func parseNamespace(path string) string {
 }
 
 // name of query string used to target specific org for request
-const orgIDTargetQuery = "targetOrgId"
+const orgIDTargetQuery = "orgId"
 
 func orgIDFromQuery(req *http.Request) int64 {
 	params := req.URL.Query()

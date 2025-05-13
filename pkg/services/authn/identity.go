@@ -33,7 +33,9 @@ type Identity struct {
 	// OrgName is the name of the active organization.
 	OrgName string
 	// OrgRoles is the list of organizations the entity is a member of and their roles.
-	OrgRoles map[int64]org.RoleType
+	OrgRoles map[string]org.RoleType
+	// IsAdmin is flag to access Editor role to all organizations
+	IsAdmin bool
 	// Login is the shorthand identifier of the entity. Should be unique.
 	Login string
 	// Name is the display name of the entity. It is not guaranteed to be unique.
@@ -219,11 +221,11 @@ func (i *Identity) GetOrgRole() org.RoleType {
 		return org.RoleNone
 	}
 
-	if i.OrgRoles[i.GetOrgID()] == "" {
+	if i.OrgRoles[i.GetOrgName()] == "" {
 		return org.RoleNone
 	}
 
-	return i.OrgRoles[i.GetOrgID()]
+	return i.OrgRoles[i.GetOrgName()]
 }
 
 func (i *Identity) GetPermissions() map[string][]string {

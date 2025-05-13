@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/mail"
 	"strconv"
+	"strings"
 
 	"golang.org/x/oauth2"
 
@@ -25,6 +27,7 @@ const (
 	nameAttributePathKey    = "name_attribute_path"
 	loginAttributePathKey   = "login_attribute_path"
 	idTokenAttributeNameKey = "id_token_attribute_name" // #nosec G101 not a hardcoded credential
+	regexOrgRoleMapperKey   = "regex_org_role_mapper"
 )
 
 var ExtraGenericOAuthSettingKeys = map[string]ExtraKeyInfo{
@@ -33,6 +36,7 @@ var ExtraGenericOAuthSettingKeys = map[string]ExtraKeyInfo{
 	idTokenAttributeNameKey: {Type: String},
 	teamIdsKey:              {Type: String},
 	allowedOrganizationsKey: {Type: String},
+	regexOrgRoleMapperKey:   {Type: String},
 }
 
 var _ social.SocialConnector = (*SocialGenericOAuth)(nil)
@@ -50,6 +54,7 @@ type SocialGenericOAuth struct {
 	idTokenAttributeName string
 	teamIdsAttributePath string
 	teamIds              []string
+	regexOrgRoleMapper   map[string]string
 }
 
 func NewGenericOAuthProvider(info *social.OAuthInfo, cfg *setting.Cfg, orgRoleMapper *OrgRoleMapper, ssoSettings ssosettings.Service, features featuremgmt.FeatureToggles) *SocialGenericOAuth {
@@ -77,6 +82,7 @@ func NewGenericOAuthProvider(info *social.OAuthInfo, cfg *setting.Cfg, orgRoleMa
 		teamIdsAttributePath: info.TeamIdsAttributePath,
 		teamIds:              teamIds,
 		allowedOrganizations: allowedOrganizations,
+		regexOrgRoleMapper:   parseOrgMapperConfig(info.Extra[regexOrgRoleMapperKey]),
 	}
 
 	if features.IsEnabledGlobally(featuremgmt.FlagSsoSettingsApi) {
@@ -160,6 +166,7 @@ func (s *SocialGenericOAuth) Reload(ctx context.Context, settings ssoModels.SSOS
 	s.teamIdsAttributePath = newInfo.TeamIdsAttributePath
 	s.teamIds = teamIds
 	s.allowedOrganizations = allowedOrganizations
+	s.regexOrgRoleMapper = parseOrgMapperConfig(newInfo.Extra[regexOrgRoleMapperKey])
 
 	return nil
 }
@@ -281,25 +288,39 @@ func (s *SocialGenericOAuth) UserInfo(ctx context.Context, client *http.Client, 
 		}
 
 		if userInfo.Role == "" && !s.info.SkipOrgRoleSync {
-			role, grafanaAdmin, err := s.extractRoleAndAdminOptional(data.rawJSON, []string{})
+			s.log.Debug("XXXX lets call extractAccountRole", ctx)
+			role, grafanaAdmin, err := s.extractAccountRole(data.rawJSON)
+
 			if err != nil {
 				s.log.Warn("Failed to extract role", "err", err)
 			} else {
-				userInfo.Role = role
 				if s.info.AllowAssignGrafanaAdmin {
 					userInfo.IsGrafanaAdmin = &grafanaAdmin
 				}
+
+				if role == "Owner" {
+					s.log.Debug(fmt.Sprintf("User is %s account owner", userInfo.Name), ctx)
+					userInfo.IsAdmin = true
+				}
+			}
+
+			s.log.Info(fmt.Sprintf("Retrieved CN account role: '%s'", role), ctx)
+			if role == "" || role == "None" {
+				return nil, errors.New("user has no granted role for CN account")
 			}
 		}
 
-		if len(externalOrgs) == 0 && !s.info.SkipOrgRoleSync {
+		if !userInfo.IsAdmin && len(externalOrgs) == 0 && !s.info.SkipOrgRoleSync {
 			var err error
+			s.log.Debug("XXXXX lets call extractOrgs", ctx)
 			externalOrgs, err = s.extractOrgs(data.rawJSON)
 			if err != nil {
 				s.log.Warn("Failed to extract orgs", "err", err)
 				return nil, err
 			}
 		}
+
+		s.log.Debug(fmt.Sprintf("XXXX externalOrgs: %s", externalOrgs), ctx)
 
 		if len(userInfo.Groups) == 0 {
 			groups, err := s.extractGroups(data)
@@ -312,8 +333,12 @@ func (s *SocialGenericOAuth) UserInfo(ctx context.Context, client *http.Client, 
 		}
 	}
 
-	if !s.info.SkipOrgRoleSync {
-		userInfo.OrgRoles = s.orgRoleMapper.MapOrgRoles(s.orgMappingCfg, externalOrgs, userInfo.Role)
+	s.log.Debug(fmt.Sprintf("XXXX user isadmin: %s", userInfo.IsAdmin), ctx)
+	s.log.Debug(fmt.Sprintf("XXXX SkipOrgRoleSync: %s", s.info.SkipOrgRoleSync), ctx)
+
+	if !userInfo.IsAdmin && !s.info.SkipOrgRoleSync {
+		//userInfo.OrgRoles = s.orgRoleMapper.MapOrgRoles(s.orgMappingCfg, externalOrgs, userInfo.Role)
+		userInfo.OrgRoles = s.orgRoleMapper.MapRegexOrgRoles(s.regexOrgRoleMapper, externalOrgs)
 		if s.info.RoleAttributeStrict && len(userInfo.OrgRoles) == 0 {
 			// If no roles are found and role_attribute_strict is set, return an error.
 			// The s.info.RoleAttributeStrict is necessary, because there is a case when len(userInfo.OrgRoles) == 0,
@@ -321,6 +346,8 @@ func (s *SocialGenericOAuth) UserInfo(ctx context.Context, client *http.Client, 
 			return nil, errRoleAttributeStrictViolation.Errorf("could not evaluate any valid roles using IdP provided data")
 		}
 	}
+
+	s.log.Debug(fmt.Sprintf("XXXX OrgRoles: %s", userInfo.OrgRoles), ctx)
 
 	if s.info.AllowAssignGrafanaAdmin && s.info.SkipOrgRoleSync {
 		s.log.Debug("AllowAssignGrafanaAdmin and skipOrgRoleSync are both set, Grafana Admin role will not be synced, consider setting one or the other")
@@ -660,4 +687,18 @@ func (s *SocialGenericOAuth) SupportBundleContent(bf *bytes.Buffer) error {
 	bf.WriteString("```\n\n")
 
 	return s.SocialBase.getBaseSupportBundleContent(bf)
+}
+
+func parseOrgMapperConfig(input string) map[string]string {
+	var result = make(map[string]string)
+	if input == "" {
+		return result
+	}
+
+	splits := strings.Fields(input)
+	for _, split := range splits {
+		i := strings.LastIndex(split, ":")
+		result[split[:i]] = split[i+1:]
+	}
+	return result
 }

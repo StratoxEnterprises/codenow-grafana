@@ -33,10 +33,12 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 	ctx, span := s.tracer.Start(ctx, "org.sync.SyncOrgRolesHook")
 	defer span.End()
 
+	//s.log.Info("SyncOrgRolesHook #1")
+	s.log.Debug(fmt.Sprintf("XXXX SyncOrgRoles: %s ", id.ClientParams.SyncOrgRoles))
 	if !id.ClientParams.SyncOrgRoles {
 		return nil
 	}
-
+	//s.log.Info("SyncOrgRolesHook #2")
 	ctxLogger := s.log.FromContext(ctx).New("id", id.ID, "login", id.Login)
 
 	if !id.IsIdentityType(claims.TypeUser) {
@@ -60,10 +62,45 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 		return nil
 	}
 
-	ctxLogger.Debug("Syncing organization roles", "extOrgRoles", id.OrgRoles)
+	if id.IsAdmin {
+		ctxLogger.Debug("Syncing organization Admins roles for account owner")
+	} else {
+		ctxLogger.Debug("Syncing organization roles", "extOrgRoles", id.OrgRoles)
+	}
 	// don't sync org roles if none is specified
-	if len(id.OrgRoles) == 0 {
+	if len(id.OrgRoles) == 0 && !id.IsAdmin {
 		ctxLogger.Debug("Not syncing organization roles since external user doesn't have any")
+		return nil
+	}
+	//s.log.Info("SyncOrgRolesHook #3")
+	if id.IsAdmin {
+		allOrgs, err := s.orgService.Search(context.Background(), &org.SearchOrgsQuery{})
+		if err != nil {
+			ctxLogger.Warn("error fetching all orgs. Roles not mapped to %s user", userID)
+			return err
+		}
+
+		for _, orga := range allOrgs {
+			if orga.Name == "Main Org." {
+				cmd := &org.RemoveOrgUserCommand{OrgID: orga.ID, UserID: userID}
+				_ = s.orgService.RemoveOrgUser(ctx, cmd)
+				continue
+			}
+			//update user role:
+			cmd := &org.UpdateOrgUserCommand{OrgID: orga.ID, UserID: userID, Role: org.RoleAdmin}
+			if err := s.orgService.UpdateOrgUser(ctx, cmd); err != nil && !errors.Is(err, org.ErrOrgUserNotFound) {
+				ctxLogger.Error("Failed to update org user", "user", id.Name, "error", err)
+				return err
+			} else if err != nil {
+				// add role:
+				cmd := &org.AddOrgUserCommand{UserID: userID, Role: org.RoleAdmin, OrgID: orga.ID}
+				err := s.orgService.AddOrgUser(ctx, cmd)
+				if err != nil && !errors.Is(err, org.ErrOrgNotFound) {
+					ctxLogger.Error("Failed to add org user user", "user", id.Name, "error", err)
+					return err
+				}
+			}
+		}
 		return nil
 	}
 
@@ -81,7 +118,8 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 	for _, orga := range result {
 		handledOrgIds[orga.OrgID] = true
 
-		extRole := id.OrgRoles[orga.OrgID]
+		orgb, _ := s.orgService.GetByID(ctx, &org.GetOrgByIDQuery{ID: orga.OrgID})
+		extRole := id.OrgRoles[orgb.Name]
 		if extRole == "" {
 			deleteOrgIds = append(deleteOrgIds, orga.OrgID)
 		} else if extRole != orga.Role {
@@ -96,14 +134,20 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 
 	orgIDs := make([]int64, 0, len(id.OrgRoles))
 	// add any new org roles
-	for orgId, orgRole := range id.OrgRoles {
-		if _, exists := handledOrgIds[orgId]; exists {
-			orgIDs = append(orgIDs, orgId)
+	for orgName, orgRole := range id.OrgRoles {
+		orga, e := s.orgService.GetByName(ctx, &org.GetOrgByNameQuery{Name: orgName})
+		if orga == nil || e != nil {
+			continue
+		}
+
+		orgIDs = append(orgIDs, orga.ID)
+
+		if _, exists := handledOrgIds[orga.ID]; exists {
 			continue
 		}
 
 		// add role
-		cmd := &org.AddOrgUserCommand{UserID: userID, Role: orgRole, OrgID: orgId}
+		cmd := &org.AddOrgUserCommand{UserID: userID, Role: orgRole, OrgID: orga.ID}
 		err := s.orgService.AddOrgUser(ctx, cmd)
 
 		if errors.Is(err, org.ErrOrgNotFound) {
@@ -115,7 +159,7 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 			return err
 		}
 
-		orgIDs = append(orgIDs, orgId)
+		orgIDs = append(orgIDs, orga.ID)
 	}
 
 	// delete any removed org roles
@@ -139,7 +183,7 @@ func (s *OrgSync) SyncOrgRolesHook(ctx context.Context, id *authn.Identity, _ *a
 	// Note: sort all org ids to not make it flaky, for now we default to the lowest id
 	sort.Slice(orgIDs, func(i, j int) bool { return orgIDs[i] < orgIDs[j] })
 	// update user's default org if needed
-	if _, ok := id.OrgRoles[id.OrgID]; !ok {
+	if _, ok := id.OrgRoles[id.OrgName]; !ok {
 		if len(orgIDs) > 0 {
 			id.OrgID = orgIDs[0]
 			return s.userService.Update(ctx, &user.UpdateUserCommand{

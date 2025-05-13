@@ -412,6 +412,7 @@ type Cfg struct {
 	ExternalUserMngAnalyticsParams string
 	AutoAssignOrg                  bool
 	AutoAssignOrgId                int
+	AutoAssignOrgName              string
 	AutoAssignOrgRole              string
 	LoginDefaultOrgId              int64
 	OAuthSkipOrgRoleUpdateSync     bool
@@ -2032,4 +2033,11 @@ func (cfg *Cfg) DefaultOrgID() int64 {
 		return int64(cfg.AutoAssignOrgId)
 	}
 	return int64(1)
+}
+
+func (cfg *Cfg) DefaultOrgName() string {
+	if cfg.AutoAssignOrg && cfg.AutoAssignOrgName != "" {
+		return cfg.AutoAssignOrgName
+	}
+	return "Main Org."
 }

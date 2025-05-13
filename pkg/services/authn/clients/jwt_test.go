@@ -38,7 +38,7 @@ func TestAuthenticateJWT(t *testing.T) {
 			wantID: &authn.Identity{
 				OrgID:           0,
 				OrgName:         "",
-				OrgRoles:        map[int64]identity.RoleType{1: identity.RoleAdmin},
+				OrgRoles:        map[string]identity.RoleType{"Main Org.": identity.RoleAdmin},
 				Groups:          []string{"foo", "bar"},
 				Login:           "eai-doe",
 				Name:            "Eai Doe",
@@ -90,7 +90,7 @@ func TestAuthenticateJWT(t *testing.T) {
 			wantID: &authn.Identity{
 				OrgID:           0,
 				OrgName:         "",
-				OrgRoles:        map[int64]identity.RoleType{1: identity.RoleAdmin},
+				OrgRoles:        map[string]identity.RoleType{"Main Org.": identity.RoleAdmin},
 				Login:           "eai-doe",
 				Groups:          []string{},
 				Name:            "Eai Doe",

@@ -29,13 +29,14 @@ import (
 
 type SocialBase struct {
 	*oauth2.Config
-	info          *social.OAuthInfo
-	cfg           *setting.Cfg
-	reloadMutex   sync.RWMutex
-	log           log.Logger
-	features      featuremgmt.FeatureToggles
-	orgRoleMapper *OrgRoleMapper
-	orgMappingCfg MappingConfiguration
+	info               *social.OAuthInfo
+	cfg                *setting.Cfg
+	reloadMutex        sync.RWMutex
+	log                log.Logger
+	features           featuremgmt.FeatureToggles
+	orgRoleMapper      *OrgRoleMapper
+	orgMappingCfg      MappingConfiguration
+	regexOrgRoleMapper map[string]string
 }
 
 func newSocialBase(name string,
@@ -153,6 +154,27 @@ func (s *SocialBase) extractRoleAndAdminOptional(rawJSON []byte, groups []string
 	}
 
 	return "", false, nil
+}
+
+func (s *SocialBase) extractAccountRole(rawJSON []byte) (string, bool, error) {
+	if s.info.RoleAttributePath == "" {
+		if s.info.RoleAttributeStrict {
+			return "", false, errRoleAttributePathNotSet.Errorf("role_attribute_path not set and role_attribute_strict is set")
+		}
+		return "", false, nil
+	}
+
+	s.log.Debug(fmt.Sprintf("XXXXX rawJSON: %v", string(rawJSON)))
+	role, err := util.SearchJSONForStringAttr(s.info.RoleAttributePath, rawJSON)
+	if role == "" || err != nil {
+		if err != nil {
+			s.log.Error("role_attribute_path could not be read correctly: " + err.Error())
+		}
+		s.log.Info("No role found in role_attribute_path. User has no access to any resource")
+		return "", false, err
+	}
+	return role, false, nil
+
 }
 
 func (s *SocialBase) searchRole(rawJSON []byte, groups []string) (org.RoleType, bool) {

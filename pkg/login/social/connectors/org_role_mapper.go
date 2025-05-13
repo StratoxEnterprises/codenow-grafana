@@ -3,17 +3,16 @@ package connectors
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
 
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/setting"
+	"regexp"
+	"strings"
 )
 
 const (
-	mapperMatchAllOrgID = -1
+	mapperMatchAllOrgID = ""
 	escapeStr           = `\`
 )
 
@@ -30,11 +29,11 @@ type OrgRoleMapper struct {
 // orgMapping: mapping from external orgs to Grafana orgs and roles
 // strictRoleMapping: if true, the mapper ensures that the evaluated role from orgMapping or the directlyMappedRole is a valid role, otherwise it will return nil.
 type MappingConfiguration struct {
-	orgMapping        map[string]map[int64]org.RoleType
+	orgMapping        map[string]map[string]org.RoleType
 	strictRoleMapping bool
 }
 
-func NewMappingConfiguration(orgMapping map[string]map[int64]org.RoleType, strictRoleMapping bool) MappingConfiguration {
+func NewMappingConfiguration(orgMapping map[string]map[string]org.RoleType, strictRoleMapping bool) MappingConfiguration {
 	return MappingConfiguration{
 		orgMapping,
 		strictRoleMapping,
@@ -60,7 +59,7 @@ func (m *OrgRoleMapper) MapOrgRoles(
 	mappingCfg MappingConfiguration,
 	externalOrgs []string,
 	directlyMappedRole org.RoleType,
-) map[int64]org.RoleType {
+) map[string]org.RoleType {
 	if len(mappingCfg.orgMapping) == 0 {
 		// Org mapping is not configured
 		return m.getDefaultOrgMapping(mappingCfg.strictRoleMapping, directlyMappedRole)
@@ -92,14 +91,49 @@ func (m *OrgRoleMapper) MapOrgRoles(
 	return userOrgRoles
 }
 
-func (m *OrgRoleMapper) getDefaultOrgMapping(strictRoleMapping bool, directlyMappedRole org.RoleType) map[int64]org.RoleType {
+func (m *OrgRoleMapper) MapRegexOrgRoles(
+	regexOrgRoleMapping map[string]string,
+	externalOrgs []string,
+) map[string]org.RoleType {
+
+	resultOrgRoles := make(map[string]org.RoleType)
+	if regexOrgRoleMapping == nil || len(regexOrgRoleMapping) == 0 || externalOrgs == nil || len(externalOrgs) == 0 {
+		return resultOrgRoles
+	}
+
+	for _, roleInToken := range externalOrgs {
+		// RegexOrgRoleMapper - map of key = regex to match role agains , value = target gragana to role to be assigned it regex matches
+		//https://stackoverflow.com/questions/20750843/using-named-matches-from-go-regex
+		for regexString, grafanaRole := range regexOrgRoleMapping {
+
+			var myExp = regexp.MustCompile(regexString)
+			match := myExp.FindStringSubmatch(roleInToken)
+			if len(match) > 0 {
+				for i, name := range myExp.SubexpNames() {
+					if i != 0 && name == "org" && resultOrgRoles[match[i]] == "" {
+						resultOrgRoles[match[i]] = org.RoleType(grafanaRole)
+					}
+				}
+			}
+		}
+	}
+
+	m.logger.Debug(fmt.Sprintf("XXXXXX Parsed org mapping: %s", resultOrgRoles))
+	return resultOrgRoles
+
+}
+
+func (m *OrgRoleMapper) getDefaultOrgMapping(strictRoleMapping bool, directlyMappedRole org.RoleType) map[string]org.RoleType {
 	if strictRoleMapping && !directlyMappedRole.IsValid() {
 		m.logger.Debug("Prevent default org role mapping, role attribute strict requested")
 		return nil
 	}
-	orgRoles := make(map[int64]org.RoleType, 0)
+	orgRoles := make(map[string]org.RoleType, 0)
 
-	orgID := m.cfg.DefaultOrgID()
+	orgID := "Main Org."
+	if m.cfg.AutoAssignOrg && m.cfg.AutoAssignOrgName != "" {
+		orgID = m.cfg.AutoAssignOrgName
+	}
 
 	orgRoles[orgID] = directlyMappedRole
 	if !directlyMappedRole.IsValid() {
@@ -109,7 +143,7 @@ func (m *OrgRoleMapper) getDefaultOrgMapping(strictRoleMapping bool, directlyMap
 	return orgRoles
 }
 
-func (m *OrgRoleMapper) handleGlobalOrgMapping(orgRoles map[int64]org.RoleType) error {
+func (m *OrgRoleMapper) handleGlobalOrgMapping(orgRoles map[string]org.RoleType) error {
 	// No global role mapping => return
 	globalRole, ok := orgRoles[mapperMatchAllOrgID]
 	if !ok {
@@ -139,7 +173,7 @@ func (m *OrgRoleMapper) handleGlobalOrgMapping(orgRoles map[int64]org.RoleType) 
 // If the roleStrict is enabled, the mapping should contain a valid role for each org.
 // FIXME: Consider introducing a struct to represent the org mapping settings
 func (m *OrgRoleMapper) ParseOrgMappingSettings(ctx context.Context, mappings []string, roleStrict bool) MappingConfiguration {
-	res := map[string]map[int64]org.RoleType{}
+	res := map[string]map[string]org.RoleType{}
 
 	for _, v := range mappings {
 		kv := splitOrgMapping(v)
@@ -147,17 +181,17 @@ func (m *OrgRoleMapper) ParseOrgMappingSettings(ctx context.Context, mappings []
 			m.logger.Error("Skipping org mapping due to invalid format.", "mapping", fmt.Sprintf("%v", v))
 			if roleStrict {
 				// Return empty mapping if the mapping format is invalied and roleStrict is enabled
-				return NewMappingConfiguration(map[string]map[int64]org.RoleType{}, roleStrict)
+				return NewMappingConfiguration(map[string]map[string]org.RoleType{}, roleStrict)
 			}
 			continue
 		}
 
-		orgID, err := m.getOrgIDForInternalMapping(ctx, kv[1])
+		orgName, err := m.getOrgIDForInternalMapping(ctx, kv[1])
 		if err != nil {
 			m.logger.Warn("Could not fetch OrgID. Skipping.", "err", err, "mapping", fmt.Sprintf("%v", v), "org", kv[1])
 			if roleStrict {
 				// Return empty mapping if at least one org name cannot be resolved when roleStrict is enabled
-				return NewMappingConfiguration(map[string]map[int64]org.RoleType{}, roleStrict)
+				return NewMappingConfiguration(map[string]map[string]org.RoleType{}, roleStrict)
 			}
 			continue
 		}
@@ -165,46 +199,42 @@ func (m *OrgRoleMapper) ParseOrgMappingSettings(ctx context.Context, mappings []
 		if roleStrict && (len(kv) < 3 || !org.RoleType(kv[2]).IsValid()) {
 			// Return empty mapping if at least one org mapping is invalid (missing role, invalid role)
 			m.logger.Warn("Skipping org mapping due to missing or invalid role in mapping when roleStrict is enabled.", "mapping", fmt.Sprintf("%v", v))
-			return NewMappingConfiguration(map[string]map[int64]org.RoleType{}, roleStrict)
+			return NewMappingConfiguration(map[string]map[string]org.RoleType{}, roleStrict)
 		}
 
 		orga := kv[0]
 		if res[orga] == nil {
-			res[orga] = map[int64]org.RoleType{}
+			res[orga] = map[string]org.RoleType{}
 		}
 
-		res[orga][int64(orgID)] = getRoleForInternalOrgMapping(kv)
+		res[orga][orgName] = getRoleForInternalOrgMapping(kv)
 	}
 
 	return NewMappingConfiguration(res, roleStrict)
 }
 
-func (m *OrgRoleMapper) getOrgIDForInternalMapping(ctx context.Context, orgIdCfg string) (int, error) {
+func (m *OrgRoleMapper) getOrgIDForInternalMapping(ctx context.Context, orgIdCfg string) (string, error) {
 	if orgIdCfg == "*" {
 		return mapperMatchAllOrgID, nil
 	}
 
-	if orgIdCfg == "" {
-		return 0, fmt.Errorf("the org name or id is empty")
-	}
-
-	orgID, err := strconv.Atoi(orgIdCfg)
-	if err != nil {
+	orgName /*, err*/ := orgIdCfg
+	/*if err != nil {
 		res, getErr := m.orgService.GetByName(ctx, &org.GetOrgByNameQuery{Name: orgIdCfg})
 
 		if getErr != nil {
 			// skip in case of error
 			m.logger.Warn("Could not fetch organization. Skipping.", "err", err, "org", orgIdCfg)
-			return 0, getErr
+			return "", getErr
 		}
-		orgID = int(res.ID)
-	}
+		orgID = es.Name
+	}*/
 
-	return orgID, nil
+	return orgName, nil
 }
 
-func (m *OrgRoleMapper) getAllOrgs() (map[int64]bool, error) {
-	allOrgIDs := map[int64]bool{}
+func (m *OrgRoleMapper) getAllOrgs() (map[string]bool, error) {
+	allOrgNames := map[string]bool{}
 	allOrgs, err := m.orgService.Search(context.Background(), &org.SearchOrgsQuery{})
 	if err != nil {
 		// In case of error, return no orgs
@@ -212,9 +242,9 @@ func (m *OrgRoleMapper) getAllOrgs() (map[int64]bool, error) {
 	}
 
 	for _, org := range allOrgs {
-		allOrgIDs[org.ID] = true
+		allOrgNames[org.Name] = true
 	}
-	return allOrgIDs, nil
+	return allOrgNames, nil
 }
 
 func splitOrgMapping(mapping string) []string {
@@ -252,8 +282,8 @@ func isValidOrgMappingFormat(kv []string) bool {
 	return len(kv) > 1 && len(kv) < 4
 }
 
-func getMappedOrgRoles(externalOrgs []string, orgMapping map[string]map[int64]org.RoleType) map[int64]org.RoleType {
-	userOrgRoles := map[int64]org.RoleType{}
+func getMappedOrgRoles(externalOrgs []string, orgMapping map[string]map[string]org.RoleType) map[string]org.RoleType {
+	userOrgRoles := map[string]org.RoleType{}
 
 	if len(orgMapping) == 0 {
 		return nil

@@ -9,9 +9,9 @@ import (
 type roleExtractor func() (org.RoleType, *bool, error)
 
 // getRoles only handles one org role for now, could be subject to change
-func getRoles(cfg *setting.Cfg, extract roleExtractor) (map[int64]org.RoleType, *bool, error) {
+func getRoles(cfg *setting.Cfg, extract roleExtractor) (map[string]org.RoleType, *bool, error) {
 	role, isGrafanaAdmin, err := extract()
-	orgRoles := make(map[int64]org.RoleType, 0)
+	orgRoles := make(map[string]org.RoleType, 0)
 	if err != nil {
 		return orgRoles, nil, err
 	}
@@ -20,7 +20,7 @@ func getRoles(cfg *setting.Cfg, extract roleExtractor) (map[int64]org.RoleType, 
 		return orgRoles, nil, nil
 	}
 
-	orgRoles[cfg.DefaultOrgID()] = role
+	orgRoles[cfg.DefaultOrgName()] = role
 
 	return orgRoles, isGrafanaAdmin, nil
 }
