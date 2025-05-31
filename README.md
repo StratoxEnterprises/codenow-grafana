@@ -73,6 +73,18 @@ Since user is owner in `demo-tenant` account, he gets `Admin` grafana role to al
 ```
 Since user is user in `demo-tenant` account, based on `cnEnvironments` he gets `Viewer` grafana role to `rfu-env` grafana organization and `Editor` grafana role to `omi-env` grafan organization.
 
+#### build & publish
+
+The build script use `docker buildx build` BuildKit plugin. If you are hipster that use some shitty Docker Desktop alternative go fuck yourself.
+
+- make sure your docker client is logged into `codenow-codenow-releases.jfrog.io` with write permission
+- run `make cn-build-and-push-docker IMAGE_VERSION=X.X.X`
+- wait very long time (maybe make a coffee or watch pornhub)
+
+#### release
+
+- make new git tag `codenow-grafana-vX.X.X`
+
 ___
 
 
